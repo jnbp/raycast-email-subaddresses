@@ -1,0 +1,46 @@
+name: Release
+
+# Push a tag like v1.2.0 to publish a release with the installer attached:
+#   git tag v1.2.0 && git push origin v1.2.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check the extension
+        run: |
+          npm ci
+          # Generates the preference types, type-checks and builds like the Raycast Store does.
+          npx ray build -e dist -o build --non-interactive
+          npx eslint src
+
+      - name: Package the installer
+        run: |
+          mkdir -p dist
+          cp scripts/install.command "dist/install-email-subaddresses.command"
+          chmod +x "dist/install-email-subaddresses.command"
+          # A zip keeps the executable bit, so the file can be double-clicked after unzipping.
+          (cd dist && zip -q "install-email-subaddresses.zip" "install-email-subaddresses.command")
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Email Subaddresses & Aliases $GITHUB_REF_NAME" \
+            --generate-notes \
+            "dist/install-email-subaddresses.zip" \
+            "dist/install-email-subaddresses.command"
