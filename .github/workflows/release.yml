@@ -1,10 +1,13 @@
 name: Release
 
-# Push a tag like v1.2.0 to publish a release with the installer attached:
-#   git tag v1.2.0 && git push origin v1.2.0
+# Two ways to publish a release with the installer attached:
+#   1. push a tag:                git tag v1.2.0 && git push origin v1.2.0
+#   2. write the version to .release on main (e.g. "1.2.0"); this workflow creates the tag.
 on:
   push:
     tags: ["v*"]
+    branches: [main]
+    paths: [".release"]
 
 permissions:
   contents: write
@@ -14,11 +17,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+
+      - name: Determine the version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="$GITHUB_REF_NAME"
+          else
+            VERSION="v$(tr -d ' \r\n' < .release)"
+            if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+              echo "Tag $VERSION already exists; bump the version in .release." >&2
+              exit 1
+            fi
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Check the extension
         run: |
@@ -35,12 +53,18 @@ jobs:
           # A zip keeps the executable bit, so the file can be double-clicked after unzipping.
           (cd dist && zip -q "install-email-subaddresses.zip" "install-email-subaddresses.command")
 
+      - name: Create the tag
+        if: github.ref_type != 'tag'
+        run: |
+          git tag "$VERSION"
+          git push origin "$VERSION"
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "Email Subaddresses & Aliases $GITHUB_REF_NAME" \
+          gh release create "$VERSION" \
+            --title "Email Subaddresses & Aliases $VERSION" \
             --generate-notes \
             "dist/install-email-subaddresses.zip" \
             "dist/install-email-subaddresses.command"
